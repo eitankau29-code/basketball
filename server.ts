@@ -1,6 +1,5 @@
 import express from "express";
 import path from "path";
-import { createServer as createViteServer } from "vite";
 
 const app = express();
 app.use(express.json());
@@ -86,8 +85,13 @@ app.post("/api/rooms", (req, res) => {
     };
 
     res.json(rooms[code]);
-  } catch (error) {
-    res.status(500).json({ error: "Failed to create room" });
+  } catch (error: any) {
+    console.error("SERVER ERROR IN /api/rooms POST:", error);
+    res.status(500).json({ 
+      error: "Failed to create room", 
+      details: error?.message || String(error),
+      stack: error?.stack
+    });
   }
 });
 
@@ -184,6 +188,7 @@ app.post("/api/rooms/:code/reset", (req, res) => {
 // Vite middleware flow for development & asset serving
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
