@@ -32,11 +32,44 @@ function randomChoice<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
+function checkTicTacToeWinner(
+  currentAnswers: (Player | 'incorrect' | null)[][],
+  currentAnsweredBy: (1 | 2 | null)[][]
+): 1 | 2 | null {
+  const lines = [
+    [[0,0], [0,1], [0,2]],
+    [[1,0], [1,1], [1,2]],
+    [[2,0], [2,1], [2,2]],
+    [[0,0], [1,0], [2,0]],
+    [[0,1], [1,1], [2,1]],
+    [[0,2], [1,2], [2,2]],
+    [[0,0], [1,1], [2,2]],
+    [[0,2], [1,1], [2,0]],
+  ];
+
+  for (const line of lines) {
+    const [[r1, c1], [r2, c2], [r3, c3]] = line;
+    const a1 = currentAnswers[r1]?.[c1];
+    const a2 = currentAnswers[r2]?.[c2];
+    const a3 = currentAnswers[r3]?.[c3];
+    
+    if (a1 && a1 !== 'incorrect' && a2 && a2 !== 'incorrect' && a3 && a3 !== 'incorrect') {
+      const o1 = currentAnsweredBy[r1]?.[c1];
+      const o2 = currentAnsweredBy[r2]?.[c2];
+      const o3 = currentAnsweredBy[r3]?.[c3];
+      if (o1 === o2 && o2 === o3 && (o1 === 1 || o1 === 2)) {
+        return o1 as 1 | 2;
+      }
+    }
+  }
+  return null;
+}
+
 export default function App() {
   // Game states: 'start' | 'playing' | 'gameover'
   const [gameState, setGameState] = useState<'start' | 'playing' | 'gameover'>('start');
-  const [gameMode, setGameMode] = useState<'solo' | 'bot' | 'duo' | 'daily_challenge'>('solo');
-  const [playerName, setPlayerName] = useState<string>('איתן');
+  const [gameMode, setGameMode] = useState<'solo' | 'bot' | 'duo' | 'daily_challenge'>('daily_challenge');
+  const [playerName, setPlayerName] = useState<string>('');
   const [player2Name, setPlayer2Name] = useState<string>('חבר');
   const [startStep, setStartStep] = useState<1 | 2>(1);
   
@@ -81,13 +114,13 @@ export default function App() {
   const [isOnlineGame, setIsOnlineGame] = useState<boolean>(false);
   const [onlineRoomCode, setOnlineRoomCode] = useState<string>('');
   const [onlinePlayerRole, setOnlinePlayerRole] = useState<1 | 2 | null>(null);
-  const [onlineAction, setOnlineAction] = useState<'host' | 'join'>('host');
+  const [onlineAction, setOnlineAction] = useState<'host' | 'join' | 'local'>('local');
   const [joinRoomCodeInput, setJoinRoomCodeInput] = useState<string>('');
   const [onlineRoomStatus, setOnlineRoomStatus] = useState<'waiting' | 'playing' | 'gameover' | ''>('');
   const [copyStatus, setCopyStatus] = useState<boolean>(false);
 
   // Quick helper to write states easily
-  const [player1Name, setPlayer1Name] = useState<string>('איתן');
+  const [player1Name, setPlayer1Name] = useState<string>('');
 
   // Handle Online Creation
   const handleCreateOnlineRoom = async () => {
@@ -502,21 +535,71 @@ export default function App() {
     
     // Bot chooses move in 1.4 seconds
     setTimeout(() => {
-      const emptyCells: { r: number; c: number }[] = [];
-      for (let r = 0; r < 3; r++) {
-        for (let c = 0; c < 3; c++) {
-          if (answers[r][c] === null) {
-            emptyCells.push({ r, c });
+      const lines = [
+        [[0,0], [0,1], [0,2]],
+        [[1,0], [1,1], [1,2]],
+        [[2,0], [2,1], [2,2]],
+        [[0,0], [1,0], [2,0]],
+        [[0,1], [1,1], [2,1]],
+        [[0,2], [1,2], [2,2]],
+        [[0,0], [1,1], [2,2]],
+        [[0,2], [1,1], [2,0]],
+      ];
+
+      let target: { r: number; c: number } | null = null;
+
+      // 1. Try to WIN immediately (Bot has 2, empty is 1)
+      for (const line of lines) {
+        const tokens = line.map(([r, c]) => answeredBy[r][c]);
+        const botTokensCount = tokens.filter(tok => tok === 2).length;
+        const emptyIndex = tokens.findIndex(([r, c], idx) => tokens[idx] === null && answers[r][c] === null);
+        if (botTokensCount === 2 && emptyIndex !== -1) {
+          const [tr, tc] = line[emptyIndex];
+          target = { r: tr, c: tc };
+          break;
+        }
+      }
+
+      // 2. Try to BLOCK Player 1 (Player has 2, empty is 1)
+      if (!target) {
+        for (const line of lines) {
+          const tokens = line.map(([r, c]) => answeredBy[r][c]);
+          const playerTokensCount = tokens.filter(tok => tok === 1).length;
+          const emptyIndex = tokens.findIndex(([r, c], idx) => tokens[idx] === null && answers[r][c] === null);
+          if (playerTokensCount === 2 && emptyIndex !== -1) {
+            const [tr, tc] = line[emptyIndex];
+            target = { r: tr, c: tc };
+            break;
           }
         }
       }
 
-      if (emptyCells.length === 0) {
+      // 3. Take center if empty
+      if (!target && answers[1][1] === null) {
+        target = { r: 1, c: 1 };
+      }
+
+      // 4. Default to random choice of available cells
+      if (!target) {
+        const emptyCells: { r: number; c: number }[] = [];
+        for (let r = 0; r < 3; r++) {
+          for (let c = 0; c < 3; c++) {
+            if (answers[r][c] === null) {
+              emptyCells.push({ r, c });
+            }
+          }
+        }
+        if (emptyCells.length > 0) {
+          target = randomChoice(emptyCells);
+        }
+      }
+
+      if (!target) {
         setBotThinking(false);
+        setCurrentTurn(1);
         return;
       }
 
-      const target = randomChoice(emptyCells);
       const colCat = cols[target.c];
       const rowCat = rows[target.r];
 
@@ -531,32 +614,33 @@ export default function App() {
         
         setAnswers(prev => {
           const next = [...prev.map(row => [...row])];
-          next[target.r][target.c] = chosen;
+          next[target!.r][target!.c] = chosen;
           return next;
         });
         setAnsweredBy(prev => {
           const next = [...prev.map(row => [...row])];
-          next[target.r][target.c] = 2;
+          next[target!.r][target!.c] = 2;
           return next;
         });
 
         playSound('swish');
         triggerNotification(`עודד בוט-טש קלע לסל עם השחקן: ${chosen.name}! (+${chosen.popularity} נק')`, 'info');
       } else {
+        // On Tic-Tac-Toe bot miss, the cell remains null
         setAnswers(prev => {
           const next = [...prev.map(row => [...row])];
-          next[target.r][target.c] = 'incorrect';
+          next[target!.r][target!.c] = null;
           return next;
         });
         setAnsweredBy(prev => {
           const next = [...prev.map(row => [...row])];
-          next[target.r][target.c] = 2;
+          next[target!.r][target!.c] = null;
           return next;
         });
         setP2Lives(prev => Math.max(0, prev - 1));
 
         playSound('brick');
-        triggerNotification('עודד בוט-טש החטיא מהקו! (+100 נקודות)', 'error');
+        triggerNotification('עודד בוט-טש החטיא מהקו! המשבצת נותרה חופשית.', 'error');
       }
 
       setBotThinking(false);
@@ -577,34 +661,44 @@ export default function App() {
   useEffect(() => {
     if (gameState !== 'playing') return;
 
+    const isTicTacToe = gameMode === 'bot' || gameMode === 'duo';
     const isFullySolved = answers.every(row => row.every(cell => cell !== null && cell !== 'incorrect'));
 
-    if (isCorrectionMode) {
-      if (isFullySolved) {
-        setGameState('gameover');
-        playSound('swish');
-        triggerNotification('כל הכבוד! תיקנת את כל השגיאות והשלמת את הלוח!', 'success');
-      } else if ((gameMode === 'solo' || gameMode === 'daily_challenge') && (soloAttemptsLeft <= 0 || p1Lives <= 0)) {
-        setGameState('gameover');
-        playSound('buzzer');
-      } else if (gameMode !== 'solo' && gameMode !== 'daily_challenge' && (p1Lives <= 0 || p2Lives <= 0)) {
+    if (isTicTacToe) {
+      const winner = checkTicTacToeWinner(answers, answeredBy);
+      const boardFilled = answers.every(row => row.every(cell => cell !== null && cell !== 'incorrect'));
+      if (winner !== null || boardFilled || p1Lives <= 0 || p2Lives <= 0) {
         setGameState('gameover');
         playSound('buzzer');
       }
     } else {
-      if (gameMode === 'solo' || gameMode === 'daily_challenge') {
-        if (soloAttemptsLeft <= 0 || p1Lives <= 0 || isBoardFilledWithAnswers) {
+      if (isCorrectionMode) {
+        if (isFullySolved) {
+          setGameState('gameover');
+          playSound('swish');
+          triggerNotification('כל הכבוד! תיקנת את כל השגיאות והשלמת את הלוח!', 'success');
+        } else if ((gameMode === 'solo' || gameMode === 'daily_challenge') && (soloAttemptsLeft <= 0 || p1Lives <= 0)) {
+          setGameState('gameover');
+          playSound('buzzer');
+        } else if (p1Lives <= 0 || p2Lives <= 0) {
           setGameState('gameover');
           playSound('buzzer');
         }
       } else {
-        if (p1Lives <= 0 || p2Lives <= 0 || isBoardFilledWithAnswers) {
-          setGameState('gameover');
-          playSound('buzzer');
+        if (gameMode === 'solo' || gameMode === 'daily_challenge') {
+          if (soloAttemptsLeft <= 0 || p1Lives <= 0 || isBoardFilledWithAnswers) {
+            setGameState('gameover');
+            playSound('buzzer');
+          }
+        } else {
+          if (p1Lives <= 0 || p2Lives <= 0 || isBoardFilledWithAnswers) {
+            setGameState('gameover');
+            playSound('buzzer');
+          }
         }
       }
     }
-  }, [answers, soloAttemptsLeft, isBoardFilledWithAnswers, gameMode, gameState, p1Lives, p2Lives, isCorrectionMode]);
+  }, [answers, answeredBy, soloAttemptsLeft, isBoardFilledWithAnswers, gameMode, gameState, p1Lives, p2Lives, isCorrectionMode]);
 
   const filteredPlayers = useMemo(() => {
     if (searchQuery.trim().length < 2) return [];
@@ -649,6 +743,47 @@ export default function App() {
     return { p1, p2, counts };
   }, [answers, answeredBy, gameMode]);
 
+  const tttResultFeedback = useMemo(() => {
+    const isTicTacToe = gameMode === 'bot' || gameMode === 'duo';
+    if (!isTicTacToe) return '';
+
+    const p1Disp = playerName || 'שחקן 1';
+    const p2Disp = gameMode === 'bot' ? 'עודד בוט-טש' : (player2Name || 'חבר');
+
+    const winner = checkTicTacToeWinner(answers, answeredBy);
+    if (winner === 1) {
+      return `ניצחון מוחץ ל-${p1Disp}! 🏆 השלים 3 ברצף (איקס)!`;
+    } else if (winner === 2) {
+      return `ניצחון מטורף ל-${p2Disp}! 🏆 השלים 3 ברצף (עיגול)!`;
+    }
+
+    if (p1Lives === 0) {
+      return `הפסד מבאס ל-${p1Disp}! 💔 נגמרו כל הלבבות על המגרש.`;
+    } else if (p2Lives === 0) {
+      return `ניצחון ל-${p1Disp}! 💔 ל-${p2Disp} נגמרו כל הלבבות.`;
+    }
+
+    // Counts
+    let p1Count = 0;
+    let p2Count = 0;
+    answers.forEach((row, r) => {
+      row.forEach((cell, c) => {
+        if (cell && cell !== 'incorrect') {
+          if (answeredBy[r][c] === 1) p1Count++;
+          else if (answeredBy[r][c] === 2) p2Count++;
+        }
+      });
+    });
+
+    if (p1Count > p2Count) {
+      return `ניצחון בנקודות ל-${p1Disp}! 🏀 (${p1Count} משבצות לעומת ${p2Count})`;
+    } else if (p2Count > p1Count) {
+      return `ניצחון בנקודות ל-${p2Disp}! 🏀 (${p2Count} משבצות לעומת ${p1Count})`;
+    }
+
+    return 'תיקו דרמטי על הפרקט! 🤝';
+  }, [answers, answeredBy, gameMode, playerName, player2Name, p1Lives, p2Lives]);
+
   const handleCellClick = (r: number, c: number) => {
     if (gameMode === 'bot' && currentTurn === 2) {
       triggerNotification('חכה, עודד בוט-טש מתכנן מהלך!', 'info');
@@ -688,6 +823,8 @@ export default function App() {
     const nextAnsweredBy = [...answeredBy.map(row => [...row])];
     let isCorrect = false;
 
+    const isTicTacToe = gameMode === 'bot' || gameMode === 'duo';
+
     if (matchCol && matchRow) {
       nextAnswers[r][c] = player;
       nextAnsweredBy[r][c] = currentTurn;
@@ -695,15 +832,19 @@ export default function App() {
       playSound('swish');
       triggerNotification(`קליעה חלקה! ${player.name} מתאים לחלוטין!`, 'success');
     } else {
-      nextAnswers[r][c] = 'incorrect';
-      nextAnsweredBy[r][c] = currentTurn;
+      if (isTicTacToe) {
+        nextAnswers[r][c] = null;
+        nextAnsweredBy[r][c] = null;
+      } else {
+        nextAnswers[r][c] = 'incorrect';
+        nextAnsweredBy[r][c] = currentTurn;
+      }
+      isCorrect = false;
       playSound('buzzer');
-      triggerNotification(`פספוס! ${player.name} לא מתאים לקטגוריות שנבחרו. (+100)`, 'error');
+      triggerNotification(`פספוס! ${player.name} לא מתאים לקטגוריות שנבחרו. (הפסדת לב 💔)`, 'error');
     }
 
     const nextTurn = currentTurn === 1 ? 2 : 1;
-    const isGameOver = nextAnswers.every(row => row.every(cell => cell !== null));
-    const nextStatus = isGameOver ? 'gameover' : 'playing';
 
     // Calculate next scoring variables
     let nextScores = { p1: rarityScores.p1, p2: rarityScores.p2 };
@@ -725,6 +866,19 @@ export default function App() {
         setP2Lives(nextP2Lives);
       }
     }
+
+    let isGameOver = false;
+    if (isTicTacToe) {
+      const winner = checkTicTacToeWinner(nextAnswers, nextAnsweredBy);
+      // For TTT, a board is filled if every square is correctly claimed
+      const boardFilled = nextAnswers.every(row => row.every(cell => cell !== null && cell !== 'incorrect'));
+      if (winner !== null || boardFilled || nextP1Lives <= 0 || nextP2Lives <= 0) {
+        isGameOver = true;
+      }
+    } else {
+      isGameOver = nextAnswers.every(row => row.every(cell => cell !== null));
+    }
+    const nextStatus = isGameOver ? 'gameover' : 'playing';
 
     setAnswers(nextAnswers);
     setAnsweredBy(nextAnsweredBy);
@@ -848,7 +1002,7 @@ export default function App() {
   };
 
   return (
-    <div className={`w-full h-screen max-h-screen ${gameState === 'playing' ? 'parquet-bg' : 'bg-slate-950'} text-slate-100 flex flex-col justify-between overflow-hidden relative select-none`} dir="rtl">
+    <div className="w-full h-screen max-h-screen parquet-bg text-slate-100 flex flex-col justify-between overflow-hidden relative select-none" dir="rtl">
       
       {/* Background Court styling */}
       <div className="absolute inset-0 z-0 pointer-events-none opacity-[0.06] bg-[radial-gradient(circle_at_50%_50%,transparent_60%,#f97316_61%,#f97316_63%,transparent_64%)]" />
@@ -924,7 +1078,11 @@ export default function App() {
                         type="text" 
                         value={playerName}
                         maxLength={14}
-                        onChange={(e) => setPlayerName(e.target.value)}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setPlayerName(val);
+                          setPlayer1Name(val);
+                        }}
                         placeholder="הזן שמך..." 
                         className="w-full bg-slate-900 border-2 border-slate-800 focus:border-orange-500 rounded-lg py-2 px-3 text-sm text-white text-center font-black focus:outline-none transition-all"
                       />
@@ -959,7 +1117,7 @@ export default function App() {
                   <div>
                     <span className="block text-slate-300 text-xs font-bold mb-2 text-center">2. בחר סוג או כיוון משחק:</span>
                     
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-3 gap-2">
                       {/* DAILY CHALLENGE */}
                       <button 
                         onClick={() => { playSound('click'); setGameMode('daily_challenge'); }}
@@ -969,54 +1127,46 @@ export default function App() {
                             : 'border-slate-850 bg-slate-950/40 text-slate-400 hover:border-slate-700'
                         }`}
                       >
-                        <span className="absolute -top-2.5 right-2 bg-gradient-to-r from-rose-500 to-orange-500 text-[7px] text-white px-1.5 py-0.5 rounded-full font-black animate-pulse">
-                          פרימיום 🔥
+                        <span className="absolute -top-2 right-1 bg-gradient-to-r from-rose-500 to-orange-500 text-[6px] text-white px-1.5 py-0.2 rounded-full font-black animate-pulse">
+                          יומי 🔥
                         </span>
                         <Award className="w-5 h-5 text-yellow-400 mb-1" />
                         <span className="text-[11px] font-black">האתגר היומי</span>
-                        <span className="text-[8px] opacity-70">לוח קבוע יומי • שמירה אוטומטית</span>
-                      </button>
-
-                      {/* SOLO GRID */}
-                      <button 
-                        onClick={() => { playSound('click'); setGameMode('solo'); }}
-                        className={`p-3 rounded-xl border-2 transition-all flex flex-col items-center justify-center text-center ${
-                          gameMode === 'solo' 
-                            ? 'border-orange-500 bg-orange-500/10 text-white' 
-                            : 'border-slate-850 bg-slate-950/40 text-slate-400 hover:border-slate-700'
-                        }`}
-                      >
-                        <User className="w-5 h-5 text-orange-400 mb-1" />
-                        <span className="text-[11px] font-black">סולו גריד</span>
-                        <span className="text-[8px] opacity-70">9 ניסיונות קליעה</span>
+                        <span className="text-[7.5px] opacity-70">קלאסי סולו</span>
                       </button>
 
                       {/* VS BOT */}
                       <button 
                         onClick={() => { playSound('click'); setGameMode('bot'); }}
-                        className={`p-3 rounded-xl border-2 transition-all flex flex-col items-center justify-center text-center ${
+                        className={`p-3 rounded-xl border-2 transition-all flex flex-col items-center justify-center text-center relative ${
                           gameMode === 'bot' 
                             ? 'border-orange-500 bg-orange-500/10 text-white' 
                             : 'border-slate-850 bg-slate-950/40 text-slate-400 hover:border-slate-700'
                         }`}
                       >
+                        <span className="absolute -top-2 right-1 bg-gradient-to-r from-indigo-500 to-purple-500 text-[6px] text-white px-1.5 py-0.2 rounded-full font-black animate-pulse">
+                          איקס עיגול ❌⭕
+                        </span>
                         <Cpu className="w-5 h-5 text-amber-400 mb-1" />
-                        <span className="text-[11px] font-black">נגד המאמן בוט-טש</span>
-                        <span className="text-[8px] opacity-70">תור אחרי תור</span>
+                        <span className="text-[11px] font-black">נגד בוט</span>
+                        <span className="text-[7.5px] opacity-70">איקס עיגול</span>
                       </button>
 
                       {/* COMPANION DUO */}
                       <button 
                         onClick={() => { playSound('click'); setGameMode('duo'); }}
-                        className={`p-3 rounded-xl border-2 transition-all flex flex-col items-center justify-center text-center ${
+                        className={`p-3 rounded-xl border-2 transition-all flex flex-col items-center justify-center text-center relative ${
                           gameMode === 'duo' 
                             ? 'border-sky-500 bg-sky-500/10 text-white' 
                             : 'border-slate-850 bg-slate-950/40 text-slate-400 hover:border-slate-700'
                         }`}
                       >
+                        <span className="absolute -top-2 right-1 bg-gradient-to-r from-sky-400 to-blue-500 text-[6px] text-white px-1.5 py-0.2 rounded-full font-black animate-pulse">
+                          חבר 👥
+                        </span>
                         <Users className="w-5 h-5 text-sky-400 mb-1" />
-                        <span className="text-[11px] font-black">אחד על אחד אונליין 🌐</span>
-                        <span className="text-[8px] opacity-70">שחקו בשני מכשירים שונים</span>
+                        <span className="text-[11px] font-black">משחק מול חבר</span>
+                        <span className="text-[7.5px] opacity-70">מקומי / אונליין</span>
                       </button>
                     </div>
                   </div>
@@ -1028,39 +1178,84 @@ export default function App() {
                       animate={{ opacity: 1, y: 0 }}
                       className="bg-slate-950/70 p-3 rounded-xl border border-slate-850 text-right space-y-3"
                     >
-                      <div className="flex bg-slate-900 rounded-lg p-1">
+                      <div className="grid grid-cols-3 gap-1 bg-slate-900 rounded-lg p-1">
                         <button
                           type="button"
-                          onClick={() => { playSound('click'); setOnlineAction('host'); }}
-                          className={`flex-1 text-center py-1 text-[11px] font-black rounded transition-all ${
+                          onClick={() => { playSound('click'); setOnlineAction('local'); setIsOnlineGame(false); }}
+                          className={`text-center py-1.5 text-[10px] font-black rounded transition-all ${
+                            onlineAction === 'local' 
+                              ? 'bg-sky-500 text-slate-950' 
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          מקומי (מסך אחד)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { playSound('click'); setOnlineAction('host'); setIsOnlineGame(true); }}
+                          className={`text-center py-1.5 text-[10px] font-black rounded transition-all ${
                             onlineAction === 'host' 
                               ? 'bg-sky-500 text-slate-950' 
                               : 'text-slate-400 hover:text-white'
                           }`}
                         >
-                          פתח חדר חדש (מארח)
+                          מארח אונליין
                         </button>
                         <button
                           type="button"
-                          onClick={() => { playSound('click'); setOnlineAction('join'); }}
-                          className={`flex-1 text-center py-1 text-[11px] font-black rounded transition-all ${
+                          onClick={() => { playSound('click'); setOnlineAction('join'); setIsOnlineGame(true); }}
+                          className={`text-center py-1.5 text-[10px] font-black rounded transition-all ${
                             onlineAction === 'join' 
                               ? 'bg-sky-500 text-slate-950' 
                               : 'text-slate-400 hover:text-white'
                           }`}
                         >
-                          הצטרף עם קוד חבר
+                          הצטרף אונליין
                         </button>
                       </div>
 
-                      {onlineAction === 'host' ? (
+                      {onlineAction === 'local' ? (
+                        <div className="space-y-2">
+                          <label className="text-[10px] text-slate-400 block font-bold">משחק מקומי באותו מכשיר - שמות שחקנים:</label>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="text-[9px] text-slate-500 block mb-0.5">שם שחקן 1 (❌):</label>
+                              <input 
+                                type="text" 
+                                value={playerName}
+                                maxLength={14}
+                                onChange={(e) => {
+                                  setPlayerName(e.target.value);
+                                  setPlayer1Name(e.target.value);
+                                }}
+                                placeholder="שם שחקן 1" 
+                                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs text-center font-bold text-white focus:outline-none focus:border-sky-500"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[9px] text-slate-500 block mb-0.5 font-sans">שם שחקן 2 (⭕):</label>
+                              <input 
+                                type="text" 
+                                value={player2Name}
+                                maxLength={14}
+                                onChange={(e) => setPlayer2Name(e.target.value)}
+                                placeholder="שם שחקן 2" 
+                                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs text-center font-bold text-white focus:outline-none focus:border-sky-500"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ) : onlineAction === 'host' ? (
                         <div className="space-y-1.5">
                           <label className="text-[10px] text-slate-400 block font-bold">כינוי בעמוד הבית (שחקן 1):</label>
                           <input 
                             type="text" 
                             value={playerName}
                             maxLength={14}
-                            onChange={(e) => setPlayerName(e.target.value)}
+                            onChange={(e) => {
+                              setPlayerName(e.target.value);
+                              setPlayer1Name(e.target.value);
+                            }}
                             placeholder="הזן שמך..." 
                             className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-center font-bold text-white focus:outline-none focus:border-sky-500"
                           />
@@ -1088,7 +1283,10 @@ export default function App() {
                                 type="text" 
                                 value={playerName}
                                 maxLength={14}
-                                onChange={(e) => setPlayerName(e.target.value)}
+                                onChange={(e) => {
+                                  setPlayerName(e.target.value);
+                                  setPlayer1Name(e.target.value);
+                                }}
                                 placeholder="שם שחקן..." 
                                 className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-center font-bold text-white focus:outline-none focus:border-sky-500"
                               />
@@ -1104,9 +1302,8 @@ export default function App() {
                     <Info className="w-3.5 h-3.5 text-orange-400 shrink-0 mt-0.5" />
                     <div>
                       {gameMode === 'daily_challenge' && 'אתגר יומי: לוח ייחודי שנקבע לכל יום! ההתקדמות נשמרת אוטומטית ברקע ותוכלו לחזור ולהמשיך בדיוק מאיפה שהפסקתם.'}
-                      {gameMode === 'solo' && 'סולו: נחשו 9 שחקנים מדהימים בשילוב הנכון, עם מגבלה של פחות מ-10 זריקות ולבבות. המטרה היא לצבור מדד נדירות נמוך בהרבה.'}
-                      {gameMode === 'bot' && 'נגד בוט: קחו פסק זמן ושחקו תור-אחר-תור נגד המאמן האוטומטי "עודד בוט-טש"! האם תצליחו לחסום את המהלכים המתוחכמים שלו?'}
-                      {gameMode === 'duo' && 'אחד על אחד אונליין: שחקו בזמן אמת מול חברים משני מכשירים שונים! צרו חדר משחק, העתיקו ושתפו את קוד החדר והתחילו בדו-קרב.'}
+                      {gameMode === 'bot' && 'איקס עיגול נגד בוט: השלימו שלושה ברצף (טור, שורה או באלכסון) מול עודד בוט-טש האוטומטי! פספוס משאיר את המשבצת חופשית.'}
+                      {gameMode === 'duo' && 'איקס עיגול מול חבר: שחקו באותו מכשיר או אונליין משני מכשירים! הראשון שמקבל שלושה בקו ישר (איקס או עיגול) מוכרז כמנצח.'}
                     </div>
                   </div>
 
@@ -1492,8 +1689,19 @@ export default function App() {
                         <div
                           key={`play-cell-${rIdx}-${cIdx}`}
                           onClick={() => handleCellClick(rIdx, cIdx)}
-                          className={`col-span-1 rounded-xl transition-all flex flex-col items-center justify-center p-0.5 text-center select-none overflow-hidden ${getCellClassName(rIdx, cIdx)}`}
+                          className={`col-span-1 rounded-xl transition-all flex flex-col items-center justify-center p-0.5 text-center select-none overflow-hidden relative ${getCellClassName(rIdx, cIdx)}`}
                         >
+                          {/* Relative X / O symbol marker badge for Tic-Tac-Toe */}
+                          {(gameMode === 'bot' || gameMode === 'duo') && answer && answer !== 'incorrect' && (
+                            <span className={`absolute top-1 right-1 text-[8px] font-black px-1.5 py-0.5 rounded leading-none select-none ${
+                              answeredBy[rIdx][cIdx] === 1 
+                                ? 'bg-sky-400 text-slate-950 shadow-[0_0_4px_rgba(56,189,248,0.5)]' 
+                                : 'bg-rose-400 text-slate-950 shadow-[0_0_4px_rgba(251,113,133,0.5)]'
+                            }`}>
+                              {answeredBy[rIdx][cIdx] === 1 ? 'X' : 'O'}
+                            </span>
+                          )}
+
                           {!isClaimed ? (
                             <span className="text-[11px] md:text-xs text-slate-400 font-extrabold">בחרו</span>
                           ) : answer === 'incorrect' ? (
@@ -1575,8 +1783,7 @@ export default function App() {
               {/* Inline feedback details */}
               <div className="mt-2.5 pt-2 border-t border-slate-900 text-xs md:text-sm font-bold text-amber-300">
                 {(gameMode === 'solo' || gameMode === 'daily_challenge') && (rarityScores.p1 < 320 ? 'מוח כדורסל מבריק! אתה מקצוען!' : 'לוח שלם ומכובד! נראה אם תצליח להשיג ניקוד נמוך יותר!')}
-                {gameMode === 'bot' && (rarityScores.p1 < rarityScores.p2 ? `ניצחת את עודד בוט-טש!` : 'עודד בוט-טש ניצח אותך! נסה שוב.')}
-                {gameMode === 'duo' && (rarityScores.p1 === rarityScores.p2 ? 'תיקו דרמטי על המגרש!' : (rarityScores.p1 < rarityScores.p2 ? `${playerName} מנצח את המפגש!` : `${player2Name} הוא מלך הפרקט החדש!`))}
+                {(gameMode === 'bot' || gameMode === 'duo') && tttResultFeedback}
               </div>
             </div>
 
