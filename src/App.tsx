@@ -133,8 +133,9 @@ export default function App() {
       }
       
       const { cols: newCols, rows: newRows } = generateSolvableBoard();
+      const apiUrl = `${window.location.origin}/api/rooms`;
       
-      const response = await fetch('/api/rooms', {
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -181,7 +182,8 @@ export default function App() {
         return;
       }
       
-      const response = await fetch(`/api/rooms/${finalCode}/join`, {
+      const apiUrl = `${window.location.origin}/api/rooms/${finalCode}/join`;
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -228,7 +230,8 @@ export default function App() {
     try {
       playSound('click');
       const { cols: newCols, rows: newRows } = generateSolvableBoard();
-      const response = await fetch(`/api/rooms/${onlineRoomCode}/reset`, {
+      const apiUrl = `${window.location.origin}/api/rooms/${onlineRoomCode}/reset`;
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -252,7 +255,8 @@ export default function App() {
     
     const pollRoom = async () => {
       try {
-        const response = await fetch(`/api/rooms/${onlineRoomCode}`);
+        const apiUrl = `${window.location.origin}/api/rooms/${onlineRoomCode}`;
+        const response = await fetch(apiUrl);
         if (!response.ok) return;
         const room = await response.json();
         
@@ -586,7 +590,8 @@ export default function App() {
 
     if (isOnlineGame) {
       if (onlinePlayerRole === currentTurn) {
-        fetch(`/api/rooms/${onlineRoomCode}/move`, {
+        const apiUrl = `${window.location.origin}/api/rooms/${onlineRoomCode}/move`;
+        fetch(apiUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -959,7 +964,8 @@ export default function App() {
 
     if (isOnlineGame) {
       setCurrentTurn(nextTurn);
-      fetch(`/api/rooms/${onlineRoomCode}/move`, {
+      const apiUrl = `${window.location.origin}/api/rooms/${onlineRoomCode}/move`;
+      fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1021,7 +1027,8 @@ export default function App() {
 
     if (isOnlineGame) {
       setCurrentTurn(nextTurn);
-      fetch(`/api/rooms/${onlineRoomCode}/move`, {
+      const apiUrl = `${window.location.origin}/api/rooms/${onlineRoomCode}/move`;
+      fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

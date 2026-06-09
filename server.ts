@@ -4,6 +4,21 @@ import path from "path";
 const app = express();
 app.use(express.json());
 
+// Custom lightweight CORS + preflight, and request logger middleware
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  
+  if (req.url.startsWith("/api")) {
+    console.log(`[API LOG] ${new Date().toISOString()} | ${req.method} ${req.url} | Body:`, JSON.stringify(req.body));
+  }
+  next();
+});
+
 interface Room {
   code: string;
   cols: any[];
@@ -112,9 +127,23 @@ app.post("/api/rooms/:code/join", (req, res) => {
     return res.status(404).json({ error: "Room not found" });
   }
 
-  // If player 2 is not set yet, they must occupy player 2's slot
+  const finalPlayerName = (playerName || "").trim();
+
+  // 1. First check if player 1 is reconnecting
+  if (room.player1Name === finalPlayerName && finalPlayerName !== "") {
+    room.player1Active = true;
+    return res.json({ role: 1, room });
+  }
+
+  // 2. Then check if player 2 is reconnecting
+  if (room.player2Name === finalPlayerName && finalPlayerName !== "") {
+    room.player2Active = true;
+    return res.json({ role: 2, room });
+  }
+
+  // 3. If player 2 is not set yet, they must occupy player 2's slot
   if (!room.player2Name) {
-    let finalPlayer2Name = playerName || "אורח";
+    let finalPlayer2Name = finalPlayerName || "אורח";
     if (finalPlayer2Name === room.player1Name) {
       finalPlayer2Name = `${finalPlayer2Name} (2)`;
     }
@@ -122,18 +151,6 @@ app.post("/api/rooms/:code/join", (req, res) => {
     room.player2Active = true;
     room.status = 'playing'; // Automatically start when guest joins
     return res.json({ role: 2, room });
-  }
-
-  // If player 2 is already set, check who is reconnecting
-  if (room.player2Name === playerName) {
-    room.player2Active = true;
-    return res.json({ role: 2, room });
-  }
-
-  // If player 1 is reconnecting
-  if (room.player1Name === playerName) {
-    room.player1Active = true;
-    return res.json({ role: 1, room });
   }
 
   return res.status(400).json({ error: "Room is full" });
