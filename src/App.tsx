@@ -118,6 +118,7 @@ export default function App() {
   const [joinRoomCodeInput, setJoinRoomCodeInput] = useState<string>('');
   const [onlineRoomStatus, setOnlineRoomStatus] = useState<'waiting' | 'playing' | 'gameover' | ''>('');
   const [copyStatus, setCopyStatus] = useState<boolean>(false);
+  const [timeLeft, setTimeLeft] = useState<number>(30);
 
   // Quick helper to write states easily
   const [player1Name, setPlayer1Name] = useState<string>('');
@@ -487,6 +488,34 @@ export default function App() {
     }
   };
 
+  const rarityScores = useMemo(() => {
+    let p1 = 0;
+    let p2 = 0;
+    let counts = 0;
+
+    answers.forEach((row, ri) => {
+      row.forEach((cell, ci) => {
+        if (cell === null) return;
+        
+        const score = cell === 'incorrect' ? 100 : cell.popularity;
+        const owner = answeredBy[ri][ci];
+
+        if (gameMode === 'solo' || gameMode === 'daily_challenge') {
+          p1 += score;
+          counts++;
+        } else {
+          if (owner === 1) {
+            p1 += score;
+          } else if (owner === 2) {
+            p2 += score;
+          }
+        }
+      });
+    });
+
+    return { p1, p2, counts };
+  }, [answers, answeredBy, gameMode]);
+
   const initBoard = () => {
     const { cols: newCols, rows: newRows } = generateSolvableBoard();
     setCols(newCols);
@@ -528,12 +557,85 @@ export default function App() {
     }, 3200);
   };
 
+  const handleTimeOut = () => {
+    setActiveCell(null);
+    playSound('buzzer');
+
+    const nextTurn = currentTurn === 1 ? 2 : 1;
+    let nextP1Lives = p1Lives;
+    let nextP2Lives = p2Lives;
+
+    if (currentTurn === 1) {
+      nextP1Lives = Math.max(0, p1Lives - 1);
+      setP1Lives(nextP1Lives);
+      triggerNotification('הפרת שעון זריקות! איבדת לב 💔 והתור עבר.', 'error');
+    } else {
+      nextP2Lives = Math.max(0, p2Lives - 1);
+      setP2Lives(nextP2Lives);
+      triggerNotification('שעון ה-30 שניות פקע ליריב! התור עבר אליך.', 'info');
+    }
+
+    const isGameOver = nextP1Lives <= 0 || nextP2Lives <= 0;
+    const nextStatus = isGameOver ? 'gameover' : 'playing';
+
+    if (isGameOver) {
+      setGameState('gameover');
+    }
+
+    setCurrentTurn(nextTurn);
+
+    if (isOnlineGame) {
+      if (onlinePlayerRole === currentTurn) {
+        fetch(`/api/rooms/${onlineRoomCode}/move`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            answers,
+            answeredBy,
+            currentTurn: nextTurn,
+            rarityScores,
+            status: nextStatus,
+            p1Lives: nextP1Lives,
+            p2Lives: nextP2Lives
+          })
+        }).catch(err => console.error('Error posting timeout move:', err));
+      }
+    }
+  };
+
+  // Reset timer to 30 whenever turn changes
+  useEffect(() => {
+    if (gameState !== 'playing') return;
+    if (gameMode !== 'bot' && gameMode !== 'duo') return;
+
+    setTimeLeft(30);
+  }, [currentTurn, gameState, gameMode]);
+
+  // Turn timer interval countdown (shot clock)
+  useEffect(() => {
+    if (gameState !== 'playing') return;
+    if (gameMode !== 'bot' && gameMode !== 'duo') return;
+
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          handleTimeOut();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [currentTurn, gameState, gameMode, p1Lives, p2Lives, isOnlineGame, onlinePlayerRole, answers, answeredBy, rarityScores, onlineRoomCode]);
+
   const executeBotTurn = () => {
     if (gameState !== 'playing' || gameMode !== 'bot' || currentTurn !== 2) return;
 
     setBotThinking(true);
     
-    // Bot chooses move in 1.4 seconds
+    // Bot chooses move instantly in 50ms
     setTimeout(() => {
       const lines = [
         [[0,0], [0,1], [0,2]],
@@ -714,34 +816,6 @@ export default function App() {
       })
       .slice(0, 10);
   }, [searchQuery]);
-
-  const rarityScores = useMemo(() => {
-    let p1 = 0;
-    let p2 = 0;
-    let counts = 0;
-
-    answers.forEach((row, ri) => {
-      row.forEach((cell, ci) => {
-        if (cell === null) return;
-        
-        const score = cell === 'incorrect' ? 100 : cell.popularity;
-        const owner = answeredBy[ri][ci];
-
-        if (gameMode === 'solo' || gameMode === 'daily_challenge') {
-          p1 += score;
-          counts++;
-        } else {
-          if (owner === 1) {
-            p1 += score;
-          } else if (owner === 2) {
-            p2 += score;
-          }
-        }
-      });
-    });
-
-    return { p1, p2, counts };
-  }, [answers, answeredBy, gameMode]);
 
   const tttResultFeedback = useMemo(() => {
     const isTicTacToe = gameMode === 'bot' || gameMode === 'duo';
@@ -1386,8 +1460,11 @@ export default function App() {
                         if (gameMode === 'duo') {
                           if (onlineAction === 'host') {
                             handleCreateOnlineRoom();
-                          } else {
+                          } else if (onlineAction === 'join') {
                             handleJoinOnlineRoom();
+                          } else {
+                            setIsOnlineGame(false);
+                            handleStartGame();
                           }
                         } else if (gameMode === 'daily_challenge') {
                           startDailyChallenge();
@@ -1525,18 +1602,32 @@ export default function App() {
 
           {/* Turn states dashboard strip */}
           <div className="flex justify-between items-center bg-slate-900/60 p-2 rounded-xl border border-slate-850 shrink-0 text-xs my-0.5">
-            <div className="flex items-center gap-1 bg-slate-950/30 px-2 py-1 rounded-lg">
-              <span className="text-[11px] font-medium text-slate-400">מהלך של:</span>
-              {(gameMode === 'solo' || gameMode === 'daily_challenge') ? (
-                <span className="font-extrabold text-orange-400 flex items-center gap-1 text-[11.5px] md:text-xs">
-                  <Flame className="w-3.5 h-3.5 text-orange-500 animate-bounce" />
-                  {soloAttemptsLeft} מהלכים שנותרו
-                </span>
-              ) : (
-                <div className="flex items-center gap-1 text-[12.5px] md:text-sm">
-                  <span className={`w-2 h-2 rounded-full mr-0.5 ${currentTurn === 1 ? 'bg-sky-400 animate-ping' : 'bg-rose-500 animate-ping'}`} />
-                  <span className="font-black text-white">
-                    {currentTurn === 1 ? (isOnlineGame ? player1Name : playerName) : (gameMode === 'bot' ? 'עודד בוט-טש' : player2Name)}
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 bg-slate-950/30 px-2 py-1 rounded-lg">
+                <span className="text-[11px] font-medium text-slate-400">מהלך של:</span>
+                {(gameMode === 'solo' || gameMode === 'daily_challenge') ? (
+                  <span className="font-extrabold text-orange-400 flex items-center gap-1 text-[11.5px] md:text-xs">
+                    <Flame className="w-3.5 h-3.5 text-orange-500 animate-bounce" />
+                    {soloAttemptsLeft} מהלכים שנותרו
+                  </span>
+                ) : (
+                  <div className="flex items-center gap-1 text-[12.5px] md:text-sm">
+                    <span className={`w-2 h-2 rounded-full mr-0.5 ${currentTurn === 1 ? 'bg-sky-400 animate-ping' : 'bg-rose-500 animate-ping'}`} />
+                    <span className="font-black text-white">
+                      {currentTurn === 1 ? (isOnlineGame ? player1Name : playerName) : (gameMode === 'bot' ? 'עודד בוט-טש' : player2Name)}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* 30s Shot clock timer */}
+              {(gameMode === 'bot' || gameMode === 'duo') && (
+                <div className="flex items-center gap-1 bg-slate-950/40 border border-slate-800/80 px-2 py-1 rounded-lg">
+                  <span className="text-[10px] font-black text-slate-400">⏱️:</span>
+                  <span className={`font-mono text-[13px] font-black leading-none ${
+                    timeLeft <= 7 ? 'text-red-500 animate-pulse drop-shadow-[0_0_4px_rgba(239,68,68,0.8)]' : 'text-orange-450'
+                  }`}>
+                    {timeLeft.toString().padStart(2, '0')} ש'
                   </span>
                 </div>
               )}
