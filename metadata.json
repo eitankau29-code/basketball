@@ -1,0 +1,6 @@
+{
+  "name": "איקס עיגול כדורסל ישראלי",
+  "description": "משחק טריביה גריד כדורסל ישראלי - בדקו את הידע שלכם על שחקני ליגת העל וה-NBA בסגנון Immaculate Grid!",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
